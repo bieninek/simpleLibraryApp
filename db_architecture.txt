@@ -7,8 +7,10 @@ CREATE TABLE authors (
   biography TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_author_name (last_name, first_name) -- Index for searching by author name
-) ENGINE=InnoDB;
+  INDEX idx_author_name (last_name, first_name)  -- Index for searching by author name
+)
+ENGINE=InnoDB;
+
 
 -- Publishers table
 CREATE TABLE publishers (
@@ -51,6 +53,7 @@ CREATE TABLE book_authors (
   FOREIGN KEY (author_id) REFERENCES authors(author_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+
 -- Categories/Genres table
 CREATE TABLE categories (
   category_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -75,7 +78,7 @@ CREATE TABLE members (
   member_id INT AUTO_INCREMENT PRIMARY KEY,
   first_name VARCHAR(100) NOT NULL,
   last_name VARCHAR(100) NOT NULL,
-  email VARCHAR(100) UNIQUE NOT NULL,
+  email VARCHAR(100) NOT NULL,
   phone VARCHAR(20),
   address TEXT,
   registration_date DATE NOT NULL DEFAULT (CURRENT_DATE),
@@ -84,7 +87,15 @@ CREATE TABLE members (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_member_name (last_name, first_name), -- For searching members by name
   INDEX idx_member_status (membership_status) -- For filtering members by status
-) ENGINE=InnoDB;
+) ENGINE=InnoDB 
+PARTITION BY RANGE (member_id) (
+  PARTITION p0 VALUES LESS THAN (10000),
+  PARTITION p1 VALUES LESS THAN (20000),
+  PARTITION p2 VALUES LESS THAN (30000),
+  PARTITION p3 VALUES LESS THAN (40000),
+  PARTITION p4 VALUES LESS THAN MAXVALUE
+);
+
 
 -- Borrowing/Loans table
 CREATE TABLE borrowings (
@@ -99,7 +110,6 @@ CREATE TABLE borrowings (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (book_id) REFERENCES books(book_id) ON DELETE RESTRICT,
-  FOREIGN KEY (member_id) REFERENCES members(member_id) ON DELETE RESTRICT,
   INDEX idx_borrowing_dates (borrow_date, due_date, return_date), -- For date range queries
   INDEX idx_borrowing_status (status) -- For filtering by status
 ) ENGINE=InnoDB;
@@ -115,7 +125,6 @@ CREATE TABLE reservations (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (book_id) REFERENCES books(book_id) ON DELETE CASCADE,
-  FOREIGN KEY (member_id) REFERENCES members(member_id) ON DELETE CASCADE,
   INDEX idx_reservation_status (status), -- For filtering by status
   INDEX idx_reservation_dates (reservation_date, expiry_date) -- For date range queries
 ) ENGINE=InnoDB;
@@ -157,6 +166,135 @@ BEGIN
       AND return_date IS NULL;
 END //
 DELIMITER ;
+
+=======================================================
+
+DELIMITER $$
+
+CREATE PROCEDURE UpdateOverdueBorrowings()
+BEGIN
+  DECLARE done INT DEFAULT FALSE;
+  DECLARE b_id INT;
+
+  DECLARE cur CURSOR FOR
+    SELECT borrowing_id FROM borrowings
+    WHERE due_date < CURDATE()
+      AND status = 'borrowed';
+
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+  OPEN cur;
+
+  read_loop: LOOP
+    FETCH cur INTO b_id;
+    IF done THEN
+      LEAVE read_loop;
+    END IF;
+
+    UPDATE borrowings
+    SET status = 'overdue'
+    WHERE borrowing_id = b_id;
+  END LOOP;
+
+  CLOSE cur;
+END$$
+
+DELIMITER ;
+
+
+=======================================================
+
+DELIMITER $$
+
+CREATE PROCEDURE CalculateFinesCursor(IN fine_per_day DECIMAL(10,2))
+BEGIN
+    -- Zmienne pomocnicze
+    DECLARE done INT DEFAULT 0;
+    DECLARE borrow_id INT;
+    DECLARE due DATE;
+    DECLARE days_late INT;
+
+    -- Kursor do przejścia po wypożyczeniach overdue
+    DECLARE cur CURSOR FOR
+        SELECT borrowing_id, due_date
+        FROM borrowings
+        WHERE status = 'overdue'
+          AND return_date IS NULL;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    -- Otwórz kursor
+    OPEN cur;
+
+    read_loop: LOOP
+        FETCH cur INTO borrow_id, due;
+
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+
+        -- Oblicz ilość dni opóźnienia
+        SET days_late = DATEDIFF(CURDATE(), due);
+
+        -- Zaktualizuj kwotę kary
+        UPDATE borrowings
+        SET fine_amount = days_late * fine_per_day
+        WHERE borrowing_id = borrow_id;
+
+    END LOOP;
+
+    -- Zamknij kursor
+    CLOSE cur;
+END$$
+
+DELIMITER ;
+
+
+=======================================================
+
+DELIMITER //
+
+CREATE FUNCTION GetActiveBorrowingsCount(bookId INT)
+RETURNS INT
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+  DECLARE activeCount INT;
+
+  SELECT COUNT(*)
+  INTO activeCount
+  FROM borrowings
+  WHERE book_id = bookId
+    AND status IN ('borrowed', 'overdue');
+
+  RETURN activeCount;
+END //
+
+DELIMITER ;
+
+
+=======================================================
+
+DELIMITER //
+
+CREATE FUNCTION AuthorExists(aId INT)
+RETURNS BOOLEAN
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+  DECLARE existsFlag BOOLEAN;
+
+  SELECT EXISTS(
+    SELECT 1 FROM authors WHERE author_id = aId
+  ) INTO existsFlag;
+
+  RETURN existsFlag;
+END //
+
+DELIMITER ;
+
+
+========================================================
 
 -- Insert some sample data
 INSERT INTO authors (first_name, last_name, birth_date) VALUES

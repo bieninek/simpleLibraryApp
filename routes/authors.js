@@ -135,6 +135,7 @@ module.exports = (pool) => {
       const authorId = req.params.id;
       const { first_name, last_name, birth_date, biography } = req.body;
       
+	  /*
       // Check if author exists
       const [authorCheck] = await pool.query(`
         SELECT author_id FROM authors WHERE author_id = ?
@@ -143,6 +144,19 @@ module.exports = (pool) => {
       if (authorCheck.length === 0) {
         return res.status(404).json({ message: 'Author not found' });
       }
+	  */
+	  
+	  const [authorCheck] = await pool.query(`
+	  SELECT author_id,
+         COUNT(*) OVER () AS total_authors
+	  FROM authors
+	  WHERE author_id = ?
+	  `, [authorId]);
+
+	  if (authorCheck.length === 0) {
+		return res.status(404).json({ message: 'Author not found' });
+	  }
+
       
       await pool.query(`
         UPDATE authors SET
@@ -167,10 +181,13 @@ module.exports = (pool) => {
       
       // Check if the author has books
       const [booksCheck] = await pool.query(`
-        SELECT COUNT(*) AS count FROM book_authors WHERE author_id = ?
-      `, [authorId]);
+	  SELECT DISTINCT author_id,
+		COUNT(*) OVER (PARTITION BY author_id) AS book_count
+	  FROM book_authors
+	  WHERE author_id = ?
+	  `, [authorId]);
       
-      if (booksCheck[0].count > 0) {
+      if (booksCheck.length > 0 && booksCheck[0].book_count > 0) {
         return res.status(400).json({ 
           message: 'Cannot delete author with associated books'
         });
@@ -200,6 +217,7 @@ module.exports = (pool) => {
       const limit = parseInt(req.query.limit) || 10;
       const offset = (page - 1) * limit;
       
+	  /*
       // Check if author exists
       const [authorCheck] = await pool.query(`
         SELECT author_id FROM authors WHERE author_id = ?
@@ -208,6 +226,16 @@ module.exports = (pool) => {
       if (authorCheck.length === 0) {
         return res.status(404).json({ message: 'Author not found' });
       }
+	  */
+	  
+	  const [rows] = await pool.query(`
+	  SELECT AuthorExists(?) AS existsFlag
+	  `, [authorId]);
+
+	  if (!rows[0].existsFlag) {
+		return res.status(404).json({ message: 'Author not found' });
+	  }
+
       
       // Get books by the author with pagination
       const [books] = await pool.query(`

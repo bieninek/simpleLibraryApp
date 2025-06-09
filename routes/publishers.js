@@ -70,6 +70,111 @@ module.exports = (pool) => {
       res.status(500).json({ message: 'Błąd przy tworzeniu wydawcy', error: error.message });
     }
   });
+  
+  // Delete a publisher
+  router.delete('/:id', async (req, res) => {
+    try {
+      const publisherId = req.params.id;
+      
+      // Check if the publisher has books
+      const [booksCheck] = await pool.query(`
+        SELECT COUNT(*) AS count FROM books WHERE publisher_id = ?
+      `, [publisherId]);
+      
+      if (booksCheck[0].count > 0) {
+        return res.status(400).json({ 
+          message: 'Cannot delete publisher with associated books'
+        });
+      }
+      
+      // Delete the publisher
+      const [result] = await pool.query(`
+        DELETE FROM publishers WHERE publisher_id = ?
+      `, [publisherId]);
+      
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: 'Publisher not found' });
+      }
+      
+      res.status(200).json({ message: 'Publisher deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting publisher:', error);
+      res.status(500).json({ message: 'Error deleting publisher', error: error.message });
+    }
+  });
+
+  // Update a publisher
+  router.put('/:id', async (req, res) => {
+    try {
+      const publisherId = req.params.id;
+      const { 
+        name, address, phone, email
+      } = req.body;
+      
+      // Check if publisher exists
+      const [publisherCheck] = await pool.query(`
+        SELECT publisher_id FROM publishers WHERE publisher_id = ?
+      `, [publisherId]);
+      
+      if (publisherCheck.length === 0) {
+        return res.status(404).json({ message: 'Publisher not found' });
+      }
+      
+      // Check if email already exists for another publisher
+      if (email) {
+        const [emailCheck] = await pool.query(`
+          SELECT publisher_id FROM publishers WHERE email = ? AND publisher_id != ?
+        `, [email, publisher_id]);
+        
+        if (emailCheck.length > 0) {
+          return res.status(400).json({ message: 'Email already in use by another publisher' });
+        }
+      }
+      
+      await pool.query(`
+        UPDATE publishers SET
+          name = ?,
+          address = ?,
+          phone = ?,
+          email = ?
+        WHERE publisher_id = ?
+      `, [
+        name, 
+        address, 
+        phone, 
+        email,
+        publisherId
+      ]);
+      
+      res.status(200).json({ message: 'Publisher updated successfully' });
+    } catch (error) {
+      console.error('Error updating publisher:', error);
+      res.status(500).json({ message: 'Error updating publisher', error: error.message });
+    }
+  });
+
+// Get publisher by ID
+  router.get('/:id', async (req, res) => {
+    try {
+      const publisherId = req.params.id;
+      
+      // Get publisher info
+      const [publishers] = await pool.query(`
+        SELECT * FROM publishers WHERE publisher_id = ?
+      `, [publisherId]);
+      
+      if (publishers.length === 0) {
+        return res.status(404).json({ message: 'Publisher not found' });
+      }
+      
+      const publisher = publishers[0];
+      
+      res.status(200).json(publisher);
+    } catch (error) {
+      console.error('Error getting publisher:', error);
+      res.status(500).json({ message: 'Error retrieving publisher', error: error.message });
+    }
+  });
 
   return router;
 };

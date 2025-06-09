@@ -333,7 +333,7 @@ module.exports = (pool) => {
   router.delete('/:id', async (req, res) => {
     try {
       const bookId = req.params.id;
-      
+      /*
       // Check if the book has active borrowings
       const [activeBorrowings] = await pool.query(`
         SELECT COUNT(*) AS count
@@ -346,6 +346,17 @@ module.exports = (pool) => {
           message: 'Cannot delete book with active borrowings'
         });
       }
+	  */
+	  // Check if the book has active borrowings using MySQL function
+	   const [rows] = await pool.query(`
+	  SELECT GetActiveBorrowingsCount(?) AS count
+	  `, [bookId]);
+
+	  if (rows[0].count > 0) {
+		return res.status(400).json({
+		message: 'Cannot delete book with active borrowings'
+		});
+	  }
       
       // Start a transaction
       const connection = await pool.getConnection();

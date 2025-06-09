@@ -325,6 +325,7 @@ module.exports = (pool) => {
     }
   });
 
+/*
   // Update overdue borrowings
   router.post('/update-overdue', async (req, res) => {
     try {
@@ -345,7 +346,25 @@ module.exports = (pool) => {
       res.status(500).json({ message: 'Error updating overdue status', error: error.message });
     }
   });
-
+  */
+  
+  // Update overdue borrowings
+  router.post('/update-overdue', async (req, res) => {
+    try {
+      // Update status of overdue books
+      const [result] = await pool.query('CALL UpdateOverdueBorrowings()');
+      
+      res.status(200).json({ 
+        message: 'Overdue status updated', 
+        updated_count: result.affectedRows 
+      });
+    } catch (error) {
+      console.error('Error updating overdue status:', error);
+      res.status(500).json({ message: 'Error updating overdue status', error: error.message });
+    }
+  });
+  
+/*
   // Calculate fines for overdue books
   router.post('/calculate-fines', async (req, res) => {
     try {
@@ -359,6 +378,26 @@ module.exports = (pool) => {
         WHERE status = 'overdue'
         AND return_date IS NULL
       `, [dailyFine]);
+      
+      res.status(200).json({ 
+        message: 'Fines calculated', 
+        updated_count: result.affectedRows 
+      });
+    } catch (error) {
+      console.error('Error calculating fines:', error);
+      res.status(500).json({ message: 'Error calculating fines', error: error.message });
+    }
+  });
+  */
+  
+  // Calculate fines for overdue books
+  router.post('/calculate-fines', async (req, res) => {
+    try {
+      const { fine_per_day } = req.body;
+      const dailyFine = fine_per_day || 1.00; // Default 1 zł per day
+      
+      // Calculate and update fines
+      const [result] = await pool.query('CALL CalculateFinesCursor(?)', [dailyFine]);
       
       res.status(200).json({ 
         message: 'Fines calculated', 
